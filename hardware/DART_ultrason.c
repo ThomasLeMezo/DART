@@ -86,6 +86,8 @@ unsigned int distance[4];
 #define TIME_AFTER_ECHO_CST 1000 // 200us
 #define CONVERSION_CM 290 // 58/0.2us
 
+unsigned int time_after_echo_value = TIME_AFTER_ECHO_CST;
+
 enum STATE {STATE_IDLE, STATE_TRIGGER, STATE_WAIT_ECHO, STATE_ECHO, AFTER_ECHO};
 enum MODE {MODE_IDLE, MODE_ONE_SHOT, MODE_SYNCHRONOUS, MODE_ASYNCHRONOUS};
 unsigned char sonar_mode[4] = {MODE_SYNCHRONOUS, MODE_SYNCHRONOUS, MODE_SYNCHRONOUS, MODE_SYNCHRONOUS};
@@ -182,6 +184,11 @@ static inline void machine_state(unsigned char id){
 		    else if(time_since(time_trigger[id], time_overflow[id])>time_max[id]){
 		    	sonar_mode[id] = AFTER_ECHO;
 		    	distance[id] = 0xFFFF;
+
+		    	time_after_echo[id] = 0;
+	        	time_after_echo[id] = TMR1L | (TMR1H << 8);
+		        if(time_after_echo[id]<2) // Case overflow occurs between two previous line
+		        	time_overflow[id] = 0;
 		    }
 		    break;
 
@@ -195,14 +202,14 @@ static inline void machine_state(unsigned char id){
 		        if(time_after_echo[id]<2) // Case overflow occurs between two previous line
 		        	time_overflow[id] = 0;
 		    }
-		    else if(time_since(time_trigger[id], time_overflow[id])>=time_max[id]){
+		    else if(time_since(time_trigger[id], time_overflow[id])>time_max[id]){
 	            sonar_mode[id] = AFTER_ECHO;
 	            distance[id] = 0xFFFF;
 		    }
 	    	break;
 
 	    case AFTER_ECHO:
-	    	if(time_since(time_after_echo[id], time_overflow[id])>=TIME_AFTER_ECHO_CST){
+	    	if(time_since(time_after_echo[id], time_overflow[id])>time_after_echo_value){
 	        	sonar_state[id] = STATE_IDLE;
 	        }
 	    	break;
@@ -260,7 +267,7 @@ void i2c_read_data_from_buffer(){
                 break;
             case 0xA8:
 				if(nb_data >= i+2){
-                    time_max[4] = CONVERSION_CM*(rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
+                    time_after_echo_value = (rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
                     i++;
                 }
                 break;
@@ -325,6 +332,12 @@ void i2c_write_data_to_buffer(unsigned short nb_tx_octet){
 			break;
 		case 0xA7:
 			SSPBUF = (time_max[3]/CONVERSION_CM) >> 8;
+			break;
+		case 0xA8:
+			SSPBUF = time_after_echo_value;
+			break;
+		case 0xA9:
+			SSPBUF = time_after_echo_value >> 8;
 			break;
 
 		case 0xB0:
