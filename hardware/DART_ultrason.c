@@ -77,8 +77,8 @@ unsigned int time_echo[4];
 unsigned int time_after_echo[4];
 unsigned char start_synchronous[4];
 
-#define TIME_MAX 116000 // 400cm * 58/0.2 (every 23.2 ms)
-unsigned long time_max[5] = {TIME_MAX, TIME_MAX, TIME_MAX, TIME_MAX, TIME_MAX};
+#define TIME_MAX_CST 116000 // 400cm * 58/0.2 (every 23.2 ms)
+unsigned long time_max[5] = {TIME_MAX_CST, TIME_MAX_CST, TIME_MAX_CST, TIME_MAX_CST, TIME_MAX_CST};
 
 unsigned int distance[4];
 
@@ -93,188 +93,194 @@ enum MODE {MODE_IDLE, MODE_ONE_SHOT, MODE_SYNCHRONOUS, MODE_ASYNCHRONOUS};
 unsigned char sonar_mode[4] = {MODE_SYNCHRONOUS, MODE_SYNCHRONOUS, MODE_SYNCHRONOUS, MODE_SYNCHRONOUS};
 unsigned char sonar_state[4] = {STATE_IDLE, STATE_IDLE, STATE_IDLE, STATE_IDLE};
 
-static inline unsigned long time_since(unsigned int last_time, unsigned int time_overflow){
-	unsigned long duration=0;
-	unsigned long time_now = TMR1L | (TMR1H << 8);
-	if(time_overflow==0){
-		duration = time_now-last_time;
-	}
-	else{
-		duration = (time_overflow<<16) - last_time + time_now;
-	}
-	return duration;
+unsigned long time_since(unsigned int last_time, unsigned int _time_overflow){
+        unsigned long duration=0;
+        unsigned long time_now = TMR1L | (TMR1H << 8);
+        if(_time_overflow==0){
+                duration = time_now-last_time;
+        }
+        else{
+             duration = ((unsigned long)_time_overflow<<16) - (unsigned long)last_time + (unsigned long)time_now;
+        }
+        return duration;
 }
 
-static inline void set_trigger(unsigned char id, unsigned char val){
-	switch(id){
-		case 0:
-			TRIGGER_SONAR_1 = val;
-			LED_SONAR_1 = ~val;
-			break;
-		case 1:
-			TRIGGER_SONAR_2 = val;
-			LED_SONAR_2 = ~val;
-			break;
-		case 2:
-			TRIGGER_SONAR_3 = val;
-			LED_SONAR_3 = ~val;
-			break;
-		case 3:
-			TRIGGER_SONAR_4 = val;
-			LED_SONAR_4 = ~val;
-			break;
-		default:
-		break;
-	}
+void set_trigger(unsigned char id, unsigned char val){
+        switch(id){
+                case 0:
+                        TRIGGER_SONAR_1 = val;
+                        LED_SONAR_1 = val;
+                        break;
+                case 1:
+                        TRIGGER_SONAR_2 = val;
+                        LED_SONAR_2 = val;
+                        break;
+                case 2:
+                        TRIGGER_SONAR_3 = val;
+                        LED_SONAR_3 = val;
+                        break;
+                case 3:
+                        TRIGGER_SONAR_4 = val;
+                        LED_SONAR_4 = val;
+                        break;
+                default:
+                break;
+        }
 }
 
-static inline unsigned short get_echo(unsigned char id){
-	switch(id){
-		case 0:
-			return ECHO_SONAR_1;
-			break;
-		case 1:
-			return ECHO_SONAR_2;
-			break;
-		case 2:
-			return ECHO_SONAR_3;
-			break;
-		case 3:
-			return ECHO_SONAR_4;
-			break;
-		default:
-		break;
-	}
-	return 0;
+unsigned short get_echo(unsigned char id){
+        switch(id){
+                case 0:
+                        return ECHO_SONAR_1;
+                        break;
+                case 1:
+                        return ECHO_SONAR_2;
+                        break;
+                case 2:
+                        return ECHO_SONAR_3;
+                        break;
+                case 3:
+                        return ECHO_SONAR_4;
+                        break;
+                default:
+                break;
+        }
+        return 0;
 }
 
-static inline void machine_state(unsigned char id){
-	switch (sonar_state[id]){
-		case STATE_IDLE:
-			if(sonar_mode[id] == MODE_ASYNCHRONOUS || sonar_mode[id] == MODE_ONE_SHOT || (sonar_mode[id] == MODE_SYNCHRONOUS && start_synchronous[id] == 1)){
-				set_trigger(id, 0);
-				time_overflow[id] = 0;
-				time_trigger[id] = TMR1L | (TMR1H << 8);
-	        if(time_trigger[id]<0xFFFF) // Case overflow occurs between two previous line
-	        	time_overflow[id] = 0;
+void machine_state(unsigned char id){
+        switch (sonar_state[id]){
+                case STATE_IDLE:
+                        if(sonar_mode[id] == MODE_ASYNCHRONOUS || sonar_mode[id] == MODE_ONE_SHOT || (sonar_mode[id] == MODE_SYNCHRONOUS && start_synchronous[id] == 1)){
+                                set_trigger(id, 1);
+                                time_overflow[id] = 0;
+                                time_trigger[id] = TMR1L | (TMR1H << 8);
+                        if(time_trigger[id]<0xFFFF) // Case overflow occurs between two previous line
+                                time_overflow[id] = 0;
 
-	        if(sonar_mode[id]==MODE_ONE_SHOT)
-	        	sonar_mode[id]=MODE_IDLE;
-	        else if(sonar_mode[id]==MODE_SYNCHRONOUS)
-	        	start_synchronous[id] = 0;
-	        	sonar_state[id] = STATE_TRIGGER;
-			}
-	        break;
+                        if(sonar_mode[id]==MODE_ONE_SHOT)
+                                sonar_mode[id]=MODE_IDLE;
+                        start_synchronous[id] = 0;
+
+                        sonar_state[id] = STATE_TRIGGER;
+                        }
+                break;
 
         case STATE_TRIGGER:
-	        if(time_since(time_trigger[id], time_overflow[id])>TIME_TRIGGER_CST){
-	        	set_trigger(id, 1);
-	        	sonar_state[id] = STATE_WAIT_ECHO;
-	        }
-	        break;
+                if(time_since(time_trigger[id], time_overflow[id])>TIME_TRIGGER_CST){
+                        set_trigger(id, 0);
+                        sonar_state[id] = STATE_WAIT_ECHO;
+                }
+                break;
 
         case STATE_WAIT_ECHO:
-	        if(get_echo(id)==1){
-	        	sonar_state[id] = STATE_ECHO;
-	        	time_overflow[id] = 0;
-	        	time_echo[id] = TMR1L | (TMR1H << 8);
-		        if(time_echo[id]<2) // Case overflow occurs between two previous line
-		        	time_overflow[id] = 0;
-		    }
-		    else if(time_since(time_trigger[id], time_overflow[id])>time_max[id]){
-		    	sonar_mode[id] = AFTER_ECHO;
-		    	distance[id] = 0xFFFF;
+                if(get_echo(id)==1){
+                        sonar_state[id] = STATE_ECHO;
+                        time_overflow[id] = 0;
+                        time_echo[id] = TMR1L | (TMR1H << 8);
+                        if(time_echo[id]<0xFFFF) // Case overflow occurs between two previous line
+                                time_overflow[id] = 0;
+                    }
+                    else if(time_since(time_trigger[id], time_overflow[id])>time_max[id]){
+                            sonar_state[id] = AFTER_ECHO;
+                            distance[id] = 0xFFFF;
 
-		    	time_after_echo[id] = 0;
-	        	time_after_echo[id] = TMR1L | (TMR1H << 8);
-		        if(time_after_echo[id]<2) // Case overflow occurs between two previous line
-		        	time_overflow[id] = 0;
-		    }
-		    break;
+                            time_after_echo[id] = 0;
+                        time_after_echo[id] = TMR1L | (TMR1H << 8);
+                        if(time_after_echo[id]<0xFFFF) // Case overflow occurs between two previous line
+                                time_overflow[id] = 0;
+                    }
+                    break;
 
-	    case STATE_ECHO:
-		    if(get_echo(id)==0){
-		    	distance[id] = time_since(time_echo[id], time_overflow[id])/CONVERSION_CM;
-		    	sonar_state[id] = AFTER_ECHO;
+            case STATE_ECHO:
+                    if(get_echo(id)==0){
+                            distance[id] = time_since(time_echo[id], time_overflow[id])/CONVERSION_CM;
+                            sonar_state[id] = AFTER_ECHO;
 
-		    	time_after_echo[id] = 0;
-	        	time_after_echo[id] = TMR1L | (TMR1H << 8);
-		        if(time_after_echo[id]<2) // Case overflow occurs between two previous line
-		        	time_overflow[id] = 0;
-		    }
-		    else if(time_since(time_trigger[id], time_overflow[id])>time_max[id]){
-	            sonar_mode[id] = AFTER_ECHO;
-	            distance[id] = 0xFFFF;
-		    }
-	    	break;
+                            time_after_echo[id] = 0;
+                        time_after_echo[id] = TMR1L | (TMR1H << 8);
+                        if(time_after_echo[id]<0xFFFF) // Case overflow occurs between two previous line
+                                time_overflow[id] = 0;
+                    }
+                    else if(time_since(time_trigger[id], time_overflow[id])>time_max[id]){
+                    sonar_state[id] = AFTER_ECHO;
+                    distance[id] = 0xFFFF;
+                    }
+                    break;
 
-	    case AFTER_ECHO:
-	    	if(time_since(time_after_echo[id], time_overflow[id])>time_after_echo_value){
-	        	sonar_state[id] = STATE_IDLE;
-	        }
-	    	break;
+            case AFTER_ECHO:
+                    if(time_since(time_after_echo[id], time_overflow[id])>time_after_echo_value){
+                        sonar_state[id] = STATE_IDLE;
+                }
+                    break;
 
-	    default:
-	    	break;
-	}
+            default:
+                    break;
+        }
 }
 
 
 void i2c_read_data_from_buffer(){
-	unsigned short i = 0;
-	short nb_data = nb_rx_octet-1;
+        unsigned short i = 0;
+        short nb_data = nb_rx_octet-1;
 
-	for(i=0; i<nb_data; i++){
-		switch(rxbuffer_tab[0]+i){
-			case 0x01:
-				break;
-			case 0xB0:
-				sonar_mode[0] = rxbuffer_tab[i+1];
-				break;
-			case 0xB1:
-				sonar_mode[1] = rxbuffer_tab[i+1];
-				break;
-			case 0xB2:
-				sonar_mode[2] = rxbuffer_tab[i+1];
-				break;
-			case 0xB3:
-				sonar_mode[3] = rxbuffer_tab[i+1];
-				break;
+        for(i=0; i<nb_data; i++){
+                switch(rxbuffer_tab[0]+i){
+            case 0x01:
+                    break;
+            case 0xB0:
+                    sonar_mode[0] = rxbuffer_tab[i+1];
+                    break;
+            case 0xB1:
+                    sonar_mode[1] = rxbuffer_tab[i+1];
+                    break;
+            case 0xB2:
+                    sonar_mode[2] = rxbuffer_tab[i+1];
+                    break;
+            case 0xB3:
+                    sonar_mode[3] = rxbuffer_tab[i+1];
+                    break;
 
-			case 0xA0:
-				if(nb_data >= i+2){
+            case 0xA0:
+                if(nb_data >= i+2){
                     time_max[0] = CONVERSION_CM*(rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
                     i++;
                 }
                 break;
             case 0xA2:
-				if(nb_data >= i+2){
+                if(nb_data >= i+2){
                     time_max[1] = CONVERSION_CM*(rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
                     i++;
                 }
                 break;
             case 0xA4:
-				if(nb_data >= i+2){
+                if(nb_data >= i+2){
                     time_max[2] = CONVERSION_CM*(rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
                     i++;
                 }
                 break;
              case 0xA6:
-				if(nb_data >= i+2){
+                if(nb_data >= i+2){
                     time_max[3] = CONVERSION_CM*(rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
                     i++;
                 }
                 break;
             case 0xA8:
-				if(nb_data >= i+2){
+                if(nb_data >= i+2){
+                    time_max[4] = CONVERSION_CM*(rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
+                    i++;
+                }
+                break;
+            case 0xAA:
+                if(nb_data >= i+2){
                     time_after_echo_value = (rxbuffer_tab[i+1] | (rxbuffer_tab[i+2] << 8));
                     i++;
                 }
                 break;
-			default:
-				break;
-		}
-	}
+            default:
+                break;
+                }
+        }
 }
 
 /**
@@ -283,103 +289,103 @@ void i2c_read_data_from_buffer(){
  */
 void i2c_write_data_to_buffer(unsigned short nb_tx_octet){
 
-	switch(rxbuffer_tab[0]+nb_tx_octet){
-		case 0x00:
-			SSPBUF = distance[0];
-			break;
-		case 0x01:
-			SSPBUF = distance[0] >> 8;
-			break;
-		case 0x02:
-			SSPBUF = distance[1];
-			break;
-		case 0x03:
-			SSPBUF = distance[1] >> 8;
-			break;
-		case 0x04:
-			SSPBUF = distance[2];
-			break;
-		case 0x05:
-			SSPBUF = distance[2] >> 8;
-			break;
-		case 0x06:
-			SSPBUF = distance[3];
-			break;
-		case 0x07:
-			SSPBUF = distance[3] >> 8;
-			break;
+        switch(rxbuffer_tab[0]+nb_tx_octet){
+                case 0x00:
+                        SSPBUF = distance[0];
+                        break;
+                case 0x01:
+                        SSPBUF = distance[0] >> 8;
+                        break;
+                case 0x02:
+                        SSPBUF = distance[1];
+                        break;
+                case 0x03:
+                        SSPBUF = distance[1] >> 8;
+                        break;
+                case 0x04:
+                        SSPBUF = distance[2];
+                        break;
+                case 0x05:
+                        SSPBUF = distance[2] >> 8;
+                        break;
+                case 0x06:
+                        SSPBUF = distance[3];
+                        break;
+                case 0x07:
+                        SSPBUF = distance[3] >> 8;
+                        break;
 
-		case 0xA0:
-			SSPBUF = (time_max[0]/CONVERSION_CM);
-			break;
-		case 0xA1:
-			SSPBUF = (time_max[0]/CONVERSION_CM) >> 8;
-			break;
-		case 0xA2:
-			SSPBUF = (time_max[1]/CONVERSION_CM);
-			break;
-		case 0xA3:
-			SSPBUF = (time_max[1]/CONVERSION_CM) >> 8;
-			break;
-		case 0xA4:
-			SSPBUF = (time_max[2]/CONVERSION_CM);
-			break;
-		case 0xA5:
-			SSPBUF = (time_max[2]/CONVERSION_CM) >> 8;
-			break;
-		case 0xA6:
-			SSPBUF = (time_max[3]/CONVERSION_CM);
-			break;
-		case 0xA7:
-			SSPBUF = (time_max[3]/CONVERSION_CM) >> 8;
-			break;
-		case 0xA8:
-			SSPBUF = (time_max[4]/CONVERSION_CM);
-			break;
-		case 0xA9:
-			SSPBUF = (time_max[4]/CONVERSION_CM) >> 8;
-			break;
-		case 0xAA:
-			SSPBUF = time_after_echo_value;
-			break;
-		case 0xAB:
-			SSPBUF = time_after_echo_value >> 8;
-			break;
+                case 0xA0:
+                        SSPBUF = (time_max[0]/CONVERSION_CM);
+                        break;
+                case 0xA1:
+                        SSPBUF = (time_max[0]/CONVERSION_CM) >> 8;
+                        break;
+                case 0xA2:
+                        SSPBUF = (time_max[1]/CONVERSION_CM);
+                        break;
+                case 0xA3:
+                        SSPBUF = (time_max[1]/CONVERSION_CM) >> 8;
+                        break;
+                case 0xA4:
+                        SSPBUF = (time_max[2]/CONVERSION_CM);
+                        break;
+                case 0xA5:
+                        SSPBUF = (time_max[2]/CONVERSION_CM) >> 8;
+                        break;
+                case 0xA6:
+                        SSPBUF = (time_max[3]/CONVERSION_CM);
+                        break;
+                case 0xA7:
+                        SSPBUF = (time_max[3]/CONVERSION_CM) >> 8;
+                        break;
+                case 0xA8:
+                        SSPBUF = (time_max[4]/CONVERSION_CM);
+                        break;
+                case 0xA9:
+                        SSPBUF = (time_max[4]/CONVERSION_CM) >> 8;
+                        break;
+                case 0xAA:
+                        SSPBUF = time_after_echo_value;
+                        break;
+                case 0xAB:
+                        SSPBUF = time_after_echo_value >> 8;
+                        break;
 
-		case 0xB0:
-			SSPBUF = sonar_mode[0];
-			break;
-		case 0xB1:
-			SSPBUF = sonar_mode[1];
-			break;
-		case 0xB2:
-			SSPBUF = sonar_mode[2];
-			break;
-		case 0xB3:
-			SSPBUF = sonar_mode[3];
-			break;
+                case 0xB0:
+                        SSPBUF = sonar_mode[0];
+                        break;
+                case 0xB1:
+                        SSPBUF = sonar_mode[1];
+                        break;
+                case 0xB2:
+                        SSPBUF = sonar_mode[2];
+                        break;
+                case 0xB3:
+                        SSPBUF = sonar_mode[3];
+                        break;
 
-		case 0xB4:
-			SSPBUF = sonar_state[0];
-			break;
-		case 0xB5:
-			SSPBUF = sonar_state[1];
-			break;
-		case 0xB6:
-			SSPBUF = sonar_state[2];
-			break;
-		case 0xB7:
-			SSPBUF = sonar_state[3];
-			break;
+                case 0xB4:
+                        SSPBUF = sonar_state[0];
+                        break;
+                case 0xB5:
+                        SSPBUF = sonar_state[1];
+                        break;
+                case 0xB6:
+                        SSPBUF = sonar_state[2];
+                        break;
+                case 0xB7:
+                        SSPBUF = sonar_state[3];
+                        break;
 
-		case 0xC0:
-			SSPBUF = CODE_VERSION;
-			break;                    
+                case 0xC0:
+                        SSPBUF = CODE_VERSION;
+                        break;                    
 
-		default:
-			SSPBUF = 0x00;
-			break;
-	}
+                default:
+                        SSPBUF = 0x00;
+                        break;
+        }
 }
 
 void init_timer1(){
@@ -402,8 +408,7 @@ void init_timer1(){
 }
 
 void init_io(){
-    ANSEL = 0x00;    // PORTA digital
-    ANSELH = 0x00;    // PORTB digital
+
 
     TRISA0_bit = 0; // RA0 en sortie (an open drain output)
     TRISA1_bit = 0; // RA1 en sortie
@@ -415,6 +420,8 @@ void init_io(){
     TRISC0_bit = 0; // RC0 en sortie
     TRISC1_bit = 0; // RC1 en sortie
     TRISC2_bit = 0; // RC2 en sortie
+
+    TRISC6_bit = 0; // RC2 en sortie
 
     TRISC3_bit = 1; // RC3 en entrée
     TRISC4_bit = 1; // RC4 en entrée
@@ -428,24 +435,24 @@ void init_io(){
     TRISB6_bit = 1; // RB6 en entrée
     TRISB7_bit = 1; // RB7 en entrée
 
-    WPUB = 0x00;
+
 }
 
 /**
  * @brief main
  */
 void main(){
-	unsigned char i=0;
+        unsigned char i=0;
     init_io(); // Initialisation des I/O
 
     // Wait 45s the PCDUINO
-    for (i=0; i< 45; i++){
-    	PORTA.RA0 =~ PORTA.RA0;
-    	PORTA.RA1 =~ PORTA.RA1;
-    	PORTA.RA2 =~ PORTA.RA2;
-    	PORTA.RA3 =~ PORTA.RA3;
-    	Delay_ms(1000);
-    }
+    /*for (i=0; i< 45; i++){
+            PORTA.RA0 =~ PORTA.RA0;
+            PORTA.RA1 =~ PORTA.RA1;
+            PORTA.RA2 =~ PORTA.RA2;
+            PORTA.RA3 =~ PORTA.RA3;
+            Delay_ms(1000);
+    }*/
 
     init_i2c(); // Initialisation de l'I2C en esclave
     init_timer1(); // Initialisation du TIMER0 toutes les 1 secondes
@@ -459,27 +466,43 @@ void main(){
     LED_SONAR_2 = 0;
     LED_SONAR_3 = 0;
     LED_SONAR_4 = 0;
-    TRIGGER_SONAR_1 = 1;
-    TRIGGER_SONAR_2 = 1;
-    TRIGGER_SONAR_3 = 1;
-    TRIGGER_SONAR_4 = 1;
+    TRIGGER_SONAR_1 = 0;
+    TRIGGER_SONAR_2 = 0;
+    TRIGGER_SONAR_3 = 0;
+    TRIGGER_SONAR_4 = 0;
+
+    UART1_Init(115200);
+
+    
+    time_overflow[4] = 0;
+	time_trigger[4] = TMR1L | (TMR1H << 8);
+    if(time_trigger[4]<0xFFFF) // Case overflow occurs between two previous line
+        	time_overflow[4] = 0;
 
     while(1){
             //asm CLRWDT;
-    	for(i=0; i<4;i++)
-    		machine_state(i);
+            for(i=0; i<4;i++)
+                    machine_state(i);
 
-    	if(time_since(time_trigger[4], time_overflow[4])>=time_max[4]){
-    		for(i=0; i<4;i++)
-    			start_synchronous[i]=1;
-    		time_overflow[4] = 0;
-    	}
+            if(time_since(time_trigger[4], time_overflow[4])>time_max[4]){
+
+                    for(i=0; i<4;i++)
+                            start_synchronous[i]=1;
+
+                    time_overflow[4] = 0;
+                    time_trigger[4] = TMR1L | (TMR1H << 8);
+                    
+                     if(time_trigger[4]<0xFFFF) // Case overflow occurs between two previous line
+                        time_overflow[4] = 0;
+
+            }
+
 
             // I2C
-    	if(nb_rx_octet>1 && SSPSTAT.P == 1){
-    		i2c_read_data_from_buffer();
-    		nb_rx_octet = 0;
-    	}
+            if(nb_rx_octet>1 && SSPSTAT.P == 1){
+                    i2c_read_data_from_buffer();
+                    nb_rx_octet = 0;
+            }
     }
 }
 
@@ -514,45 +537,45 @@ void init_i2c(){
  * @brief interrupt_low
  */
 void interrupt(){
-	unsigned char i=0;
+        unsigned char i=0;
     if (PIR1.SSPIF){  // I2C Interrupt
-    	if(SSPCON.SSPOV || SSPCON.WCOL){
-    		SSPCON.SSPOV = 0;
-    		SSPCON.WCOL = 0;
-    		tmp_rx = SSPBUF;
-    	}
+            if(SSPCON.SSPOV || SSPCON.WCOL){
+                    SSPCON.SSPOV = 0;
+                    SSPCON.WCOL = 0;
+                    tmp_rx = SSPBUF;
+            }
 
         //****** receiving data from master ****** //
         // 0 = Write (master -> slave - reception)
-    	if (SSPSTAT.R_W == 0){
-    		if(SSPSTAT.P == 0){
+            if (SSPSTAT.R_W == 0){
+                    if(SSPSTAT.P == 0){
                     if (SSPSTAT.D_A == 0){ // Address
-                    	nb_rx_octet = 0;
-                    	tmp_rx = SSPBUF;
+                            nb_rx_octet = 0;
+                            tmp_rx = SSPBUF;
                     }
                     else{ // Data
-                    	if(nb_rx_octet < SIZE_RX_BUFFER){
-                    		rxbuffer_tab[nb_rx_octet] = SSPBUF;
-                    		nb_rx_octet++;
-                    	}
-                    	else{
-                    		tmp_rx = SSPBUF;
-                    	}
+                            if(nb_rx_octet < SIZE_RX_BUFFER){
+                                    rxbuffer_tab[nb_rx_octet] = SSPBUF;
+                                    nb_rx_octet++;
+                            }
+                            else{
+                                    tmp_rx = SSPBUF;
+                            }
                     }
                 }
             }
         //******  transmitting data to master ****** //
         // 1 = Read (slave -> master - transmission)
         else{
-        	if(SSPSTAT.D_A == 0){
-        		nb_tx_octet = 0;
-        		tmp_rx = SSPBUF;
-        	}
+                if(SSPSTAT.D_A == 0){
+                        nb_tx_octet = 0;
+                        tmp_rx = SSPBUF;
+                }
 
                 // In both D_A case (transmit data after receive add)
-        	i2c_write_data_to_buffer(nb_tx_octet);
-        	Delay_us(20);
-        	nb_tx_octet++;
+                i2c_write_data_to_buffer(nb_tx_octet);
+                Delay_us(20);
+                nb_tx_octet++;
         }
 
         SSPCON.CKP = 1;
@@ -560,8 +583,8 @@ void interrupt(){
     }
 
     if (TMR1IF_bit){ // Overflow
-    	for(i=0;i<5;i++)
-    		time_overflow[i] += 1;
-    	TMR1IF_bit = 0;
+            for(i=0;i<5;i++)
+                    time_overflow[i] += 1;
+            TMR1IF_bit = 0;
     }
 }
