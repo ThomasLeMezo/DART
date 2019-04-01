@@ -78,7 +78,7 @@ unsigned int time_after_echo[4];
 unsigned char start_synchronous[4];
 
 #define TIME_MAX 116000 // 400cm * 58/0.2 (every 23.2 ms)
-unsigned long time_max[4] = {TIME_MAX, TIME_MAX, TIME_MAX, TIME_MAX};
+unsigned long time_max[5] = {TIME_MAX, TIME_MAX, TIME_MAX, TIME_MAX, TIME_MAX};
 
 unsigned int distance[4];
 
@@ -100,7 +100,7 @@ static inline unsigned long time_since(unsigned int last_time, unsigned int time
 		duration = time_now-last_time;
 	}
 	else{
-		duration = ((time_overflow-1)<<16) + time_now + ((1<<16)-last_time);
+		duration = (time_overflow<<16) - last_time + time_now;
 	}
 	return duration;
 }
@@ -334,9 +334,15 @@ void i2c_write_data_to_buffer(unsigned short nb_tx_octet){
 			SSPBUF = (time_max[3]/CONVERSION_CM) >> 8;
 			break;
 		case 0xA8:
-			SSPBUF = time_after_echo_value;
+			SSPBUF = (time_max[4]/CONVERSION_CM);
 			break;
 		case 0xA9:
+			SSPBUF = (time_max[4]/CONVERSION_CM) >> 8;
+			break;
+		case 0xAA:
+			SSPBUF = time_after_echo_value;
+			break;
+		case 0xAB:
 			SSPBUF = time_after_echo_value >> 8;
 			break;
 
